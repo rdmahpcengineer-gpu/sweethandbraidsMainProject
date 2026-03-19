@@ -22,11 +22,11 @@ const Footer: React.FC = () => {
                         <ul className="contact-info">
                             <li>
                                 <MapPin size={20} className="gold-text" />
-                                <span>123 Elegance Blvd, Suite 2B<br />Atlanta, GA 30303</span>
+                                <span>1975 Arapaho Rd, Apt 2208<br />Garland, TX 75044</span>
                             </li>
                             <li>
                                 <Phone size={20} className="gold-text" />
-                                <span>(555) 123-4567</span>
+                                <span>(929) 202-9714</span>
                             </li>
                             <li>
                                 <Mail size={20} className="gold-text" />
