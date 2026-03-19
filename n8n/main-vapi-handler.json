@@ -1,0 +1,656 @@
+{
+  "name": "main-vapi-handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi-server-url",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-vapi",
+      "name": "Webhook: VAPI Server URL",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Receives all VAPI events. Verify x-vapi-secret header in production."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract VAPI event type and validate\nconst body = $input.first().json.body;\nconst messageType = body.message?.type || 'unknown';\nconst call = body.message?.call || {};\nconst customerPhone = call.customer?.number || null;\nconst callId = call.id || null;\n\nreturn [{\n  json: {\n    messageType,\n    customerPhone,\n    callId,\n    fullPayload: body,\n    functionCall: body.message?.functionCall || null,\n    transcript: body.message?.transcript || null,\n    endOfCallReport: body.message?.endOfCallReport || null\n  }\n}];"
+      },
+      "id": "parse-vapi-event",
+      "name": "Code: Parse VAPI Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "assistant-request",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Assistant Request"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "function-call",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Function Call"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "end-of-call-report",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "End of Call"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "status-update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Status Update"
+            }
+          ]
+        },
+        "mode": "rules",
+        "options": {
+          "fallbackOutputType": "extra"
+        }
+      },
+      "id": "switch-event-type",
+      "name": "Switch: VAPI Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_CUSTOMER_LOOKUP_ID }}"
+      },
+      "id": "ar-customer-lookup",
+      "name": "Assistant Request: Customer Lookup",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        760,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_MEMORY_RETRIEVAL_ID }}"
+      },
+      "id": "ar-memory-retrieval",
+      "name": "Assistant Request: Memory Retrieval",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        980,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build dynamic VAPI assistant config with RAG context\nconst customer = $('Assistant Request: Customer Lookup').first().json.customer_profile;\nconst memory = $('Assistant Request: Memory Retrieval').first().json;\nconst isNew = $('Assistant Request: Customer Lookup').first().json.is_new_customer;\n\nconst firstName = customer?.name?.split(' ')[0] || 'love';\nconst ragContext = memory?.rag_context || 'No previous interaction history.';\nconst lastAppt = memory?.last_appointment;\n\nlet firstMessage = isNew\n  ? `Hey love! Welcome to Sweet Hand Braids \u2014 I'm your AI stylist! Whether you're looking for a fresh new look or need to book an appointment, I've got you. What style are you thinking about?`\n  : `Hey ${firstName}! Welcome back to Sweet Hand Braids! ${lastAppt ? `Last time you got ${lastAppt.service_type} and looked amazing!` : ''} What can I do for you today?`;\n\nconst systemPrompt = `You are SweetHand, the AI hair braiding stylist at Sweet Hand Braids salon.\n\nPERSONALITY:\n- Warm, confident, knowledgeable \u2014 like a best friend who is an expert braider\n- Use natural, friendly language. Keep responses SHORT (2-3 sentences) since this is voice\n- Be enthusiastic about hair \u2014 you LOVE what you do\n- Give honest advice with kindness\n\nCUSTOMER CONTEXT:\n${ragContext}\n\nCURRENT CUSTOMER: ${customer?.name || 'New Customer'}\nHair Profile: ${JSON.stringify(customer?.hair_profile || 'Unknown \u2014 ask about their hair')}\nVisit Count: ${customer?.lifetime_visits || 0}\n\nRULES:\n1. Keep responses to 2-3 sentences MAX \u2014 this is a phone call\n2. If they want to book, use the book_appointment function\n3. Always confirm details before booking: style, date, time\n4. If unsure about their hair type, ask them to describe it\n5. When discussing styles, mention estimated time and price range\n6. End interactions with a clear next step`;\n\nreturn [{\n  json: {\n    assistant: {\n      firstMessage: firstMessage,\n      model: {\n        provider: 'openai',\n        model: 'gpt-4o',\n        temperature: 0.7,\n        maxTokens: 250,\n        systemMessage: systemPrompt,\n        tools: [\n          {\n            type: 'function',\n            function: {\n              name: 'book_appointment',\n              description: 'Book a hair braiding appointment for the customer',\n              parameters: {\n                type: 'object',\n                properties: {\n                  service_type: { type: 'string', description: 'Type of braiding service (e.g., box_braids, goddess_locs, cornrows, passion_twists)' },\n                  preferred_date: { type: 'string', description: 'Preferred date in YYYY-MM-DD format' },\n                  preferred_time: { type: 'string', description: 'Preferred time in HH:MM format' },\n                  notes: { type: 'string', description: 'Style details: color, length, thickness preferences' }\n                },\n                required: ['service_type', 'preferred_date', 'preferred_time']\n              }\n            }\n          },\n          {\n            type: 'function',\n            function: {\n              name: 'check_availability',\n              description: 'Check available appointment slots for a given date',\n              parameters: {\n                type: 'object',\n                properties: {\n                  start_date: { type: 'string', description: 'Start date YYYY-MM-DD' },\n                  end_date: { type: 'string', description: 'End date YYYY-MM-DD (optional, defaults to start_date)' },\n                  service_duration_minutes: { type: 'integer', description: 'Estimated service duration in minutes' }\n                },\n                required: ['start_date']\n              }\n            }\n          },\n          {\n            type: 'function',\n            function: {\n              name: 'cancel_appointment',\n              description: 'Cancel the customers most recent or specified appointment',\n              parameters: {\n                type: 'object',\n                properties: {\n                  reason: { type: 'string', description: 'Reason for cancellation' }\n                }\n              }\n            }\n          },\n          {\n            type: 'function',\n            function: {\n              name: 'reschedule_appointment',\n              description: 'Reschedule an existing appointment to a new date and time',\n              parameters: {\n                type: 'object',\n                properties: {\n                  new_date: { type: 'string', description: 'New date YYYY-MM-DD' },\n                  new_time: { type: 'string', description: 'New time HH:MM' }\n                },\n                required: ['new_date', 'new_time']\n              }\n            }\n          }\n        ]\n      },\n      voice: {\n        provider: '11labs',\n        voiceId: 'EXAVITQu4vr4xnSDxMaL'\n      },\n      silenceTimeoutSeconds: 30,\n      maxDurationSeconds: 600,\n      endCallFunctionEnabled: true\n    }\n  }\n}];"
+      },
+      "id": "ar-build-config",
+      "name": "Code: Build Assistant Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "ar-respond",
+      "name": "Respond: Assistant Config",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.functionCall.name }}",
+                    "rightValue": "book_appointment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Book"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.functionCall.name }}",
+                    "rightValue": "check_availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Check"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.functionCall.name }}",
+                    "rightValue": "cancel_appointment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Cancel"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.functionCall.name }}",
+                    "rightValue": "reschedule_appointment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Reschedule"
+            }
+          ]
+        },
+        "mode": "rules"
+      },
+      "id": "fc-switch-function",
+      "name": "Switch: Function Name",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_CUSTOMER_LOOKUP_ID }}"
+      },
+      "id": "fc-customer-lookup",
+      "name": "FC: Customer Lookup",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        980,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "fc-book",
+      "name": "FC: Book Appointment",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "fc-check",
+      "name": "FC: Check Availability",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "fc-cancel",
+      "name": "FC: Cancel Appointment",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "fc-reschedule",
+      "name": "FC: Reschedule Appointment",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format function result for VAPI\nconst result = $input.first().json;\nreturn [{ json: { result: JSON.stringify(result) } }];"
+      },
+      "id": "fc-format-result",
+      "name": "Code: Format Function Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ result: $json.result }) }}"
+      },
+      "id": "fc-respond",
+      "name": "Respond: Function Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_CUSTOMER_LOOKUP_ID }}"
+      },
+      "id": "eoc-customer-lookup",
+      "name": "EOC: Customer Lookup",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        760,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_MEMORY_WRITER_ID }}"
+      },
+      "id": "eoc-memory-writer",
+      "name": "EOC: Store Transcript in Memory",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        980,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok' }) }}"
+      },
+      "id": "eoc-respond",
+      "name": "Respond: EOC Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok' }) }}"
+      },
+      "id": "status-respond",
+      "name": "Respond: Status Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        760,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok' }) }}"
+      },
+      "id": "fallback-respond",
+      "name": "Respond: Fallback Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        760,
+        820
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: VAPI Server URL": {
+      "main": [
+        [
+          {
+            "node": "Code: Parse VAPI Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Parse VAPI Event": {
+      "main": [
+        [
+          {
+            "node": "Switch: VAPI Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: VAPI Event Type": {
+      "main": [
+        [
+          {
+            "node": "Assistant Request: Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch: Function Name",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "EOC: Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Status Ack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Fallback Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assistant Request: Customer Lookup": {
+      "main": [
+        [
+          {
+            "node": "Assistant Request: Memory Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assistant Request: Memory Retrieval": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Assistant Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Assistant Config": {
+      "main": [
+        [
+          {
+            "node": "Respond: Assistant Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Function Name": {
+      "main": [
+        [
+          {
+            "node": "FC: Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FC: Check Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FC: Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FC: Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FC: Customer Lookup": {
+      "main": [
+        [
+          {
+            "node": "FC: Book Appointment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FC: Cancel Appointment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FC: Reschedule Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FC: Book Appointment": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FC: Check Availability": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FC: Cancel Appointment": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FC: Reschedule Appointment": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Function Result": {
+      "main": [
+        [
+          {
+            "node": "Respond: Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EOC: Customer Lookup": {
+      "main": [
+        [
+          {
+            "node": "EOC: Store Transcript in Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EOC: Store Transcript in Memory": {
+      "main": [
+        [
+          {
+            "node": "Respond: EOC Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "main-workflow"
+    },
+    {
+      "name": "vapi"
+    },
+    {
+      "name": "production"
+    }
+  ]
+}

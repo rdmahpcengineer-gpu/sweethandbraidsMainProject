@@ -1,0 +1,251 @@
+{
+  "name": "cron-24h-appointment-reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "cron-24h",
+      "name": "Cron: Daily 9:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Runs every day at 9:00 AM to find appointments happening tomorrow"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.customer_id, a.service_type, a.start_time, a.end_time, a.duration_minutes, a.notes, a.price_quoted, a.status, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email FROM appointments a JOIN customers c ON a.customer_id = c.id WHERE a.start_time >= NOW() + INTERVAL '23 hours' AND a.start_time <= NOW() + INTERVAL '25 hours' AND a.status = 'confirmed'",
+        "options": {}
+      },
+      "id": "query-tomorrow-appts",
+      "name": "Supabase: Get Tomorrow's Appointments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-appointments",
+      "name": "IF: Has Appointments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "split-batches",
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        260
+      ],
+      "notes": "Process each appointment one at a time to avoid rate limiting on Twilio/email"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build notification payload for sub-notification-engine\nconst appt = $input.first().json;\nreturn [{\n  json: {\n    customer_phone: appt.customer_phone,\n    customer_email: appt.customer_email,\n    customer_name: appt.customer_name,\n    notification_type: 'reminder_24h',\n    appointment_details: {\n      id: appt.id,\n      service_type: appt.service_type,\n      start_time: appt.start_time,\n      end_time: appt.end_time,\n      duration_minutes: appt.duration_minutes,\n      notes: appt.notes,\n      price_quoted: appt.price_quoted\n    }\n  }\n}];"
+      },
+      "id": "build-24h-payload",
+      "name": "Code: Build 24hr Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_NOTIFICATION_ENGINE_ID }}"
+      },
+      "id": "exec-notification-24h",
+      "name": "Execute: sub-notification-engine (24hr)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log the batch completion\nconst item = $input.first().json;\nreturn [{ json: { status: '24h_reminder_sent', customer: item.customer_name, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "log-24h",
+      "name": "Code: Log 24hr Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "operation": "insert",
+        "schema": "public",
+        "table": "analytics_events",
+        "columns": "event_type,customer_id,channel,metadata",
+        "values": "={{ JSON.stringify({ event_type: 'reminder_24h_sent', customer_id: $json.customer_id, channel: 'automated', metadata: { appointment_id: $json.id } }) }}"
+      },
+      "id": "log-analytics-24h",
+      "name": "Supabase: Log Analytics Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        540,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      },
+      "notes": "Track reminder delivery for analytics dashboard"
+    }
+  ],
+  "connections": {
+    "Cron: Daily 9:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Get Tomorrow's Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Get Tomorrow's Appointments": {
+      "main": [
+        [
+          {
+            "node": "IF: Has Appointments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Appointments?": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Split Into Batches": {
+      "main": [
+        [
+          {
+            "node": "Code: Build 24hr Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code: Build 24hr Payload": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-notification-engine (24hr)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-notification-engine (24hr)": {
+      "main": [
+        [
+          {
+            "node": "Code: Log 24hr Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Log 24hr Sent": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "cron"
+    },
+    {
+      "name": "reminders"
+    }
+  ]
+}

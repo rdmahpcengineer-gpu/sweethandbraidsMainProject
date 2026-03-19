@@ -1,0 +1,197 @@
+{
+  "name": "main-create-video-room",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "create-video-room",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-video-room",
+      "name": "Webhook: Create Video Room",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Called by the chat widget when customer starts a video call. Creates a temporary Daily.co room."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.daily.co/v1/rooms",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.DAILY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": {
+          "name": "shb-{{ $json.body.session_id }}",
+          "privacy": "private",
+          "properties": {
+            "max_participants": 2,
+            "enable_recording": "cloud",
+            "enable_chat": false,
+            "exp": "={{ Math.floor(Date.now() / 1000) + 3600 }}",
+            "eject_at_room_exp": true,
+            "enable_knocking": false,
+            "start_video_off": false,
+            "start_audio_off": false
+          }
+        },
+        "options": {}
+      },
+      "id": "create-daily-room",
+      "name": "HTTP: Create Daily.co Room",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        300
+      ],
+      "notes": "Creates a temporary room that expires in 1 hour. Private room with max 2 participants (customer + AI observation)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.daily.co/v1/meeting-tokens",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.DAILY_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": {
+          "properties": {
+            "room_name": "={{ $json.name }}",
+            "user_name": "={{ $('Webhook: Create Video Room').item.json.body.customer_name || 'Customer' }}",
+            "enable_recording": "cloud",
+            "exp": "={{ Math.floor(Date.now() / 1000) + 3600 }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "create-meeting-token",
+      "name": "HTTP: Create Meeting Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        300
+      ],
+      "notes": "Generates a token for the customer to join the room."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log the video session start\nconst roomData = $('HTTP: Create Daily.co Room').first().json;\nconst tokenData = $input.first().json;\nconst webhookData = $('Webhook: Create Video Room').first().json.body;\n\nreturn [{\n  json: {\n    room_url: roomData.url,\n    room_name: roomData.name,\n    token: tokenData.token,\n    session_id: webhookData.session_id,\n    customer_name: webhookData.customer_name,\n    expires_at: new Date(Date.now() + 3600000).toISOString()\n  }\n}];"
+      },
+      "id": "build-response",
+      "name": "Code: Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ room_url: $json.room_url, token: $json.token, room_name: $json.room_name, expires_at: $json.expires_at }) }}"
+      },
+      "id": "respond-room",
+      "name": "Respond: Room Details",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: Create Video Room": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Create Daily.co Room",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Create Daily.co Room": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Create Meeting Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Create Meeting Token": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond: Room Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "video"
+    },
+    {
+      "name": "daily-co"
+    }
+  ]
+}

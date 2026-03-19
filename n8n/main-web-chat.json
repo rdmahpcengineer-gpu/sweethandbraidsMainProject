@@ -1,0 +1,442 @@
+{
+  "name": "main-web-chat",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web-chat-intake",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-intake",
+      "name": "Webhook: Web Chat Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-media",
+              "leftValue": "={{ $json.body.message_type }}",
+              "rightValue": "video_frame",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-media-check",
+      "name": "IF: Has Media?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_MEDIA_ANALYSIS_ID }}"
+      },
+      "id": "exec-media-analysis",
+      "name": "Execute: sub-media-analysis",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        540,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_CUSTOMER_LOOKUP_ID }}"
+      },
+      "id": "exec-customer-lookup",
+      "name": "Execute: sub-customer-lookup",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_MEMORY_RETRIEVAL_ID }}"
+      },
+      "id": "exec-memory-retrieval",
+      "name": "Execute: sub-memory-retrieval",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_AI_STYLIST_ID }}"
+      },
+      "id": "exec-ai-stylist",
+      "name": "Execute: sub-ai-stylist-agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-tool-calls",
+              "leftValue": "={{ $json.tool_calls.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-tool-calls",
+      "name": "IF: Has Tool Calls?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tool_calls[0].name }}",
+                    "rightValue": "book_appointment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Book"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tool_calls[0].name }}",
+                    "rightValue": "recommend_styles",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Recommend"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.tool_calls[0].name }}",
+                    "rightValue": "check_availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Availability"
+            }
+          ]
+        },
+        "mode": "rules"
+      },
+      "id": "switch-tool",
+      "name": "Switch: Tool Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1640,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "exec-book-appointment",
+      "name": "Execute: sub-appointment-manager (Book)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_STYLE_RECOMMENDER_ID }}"
+      },
+      "id": "exec-style-recommender",
+      "name": "Execute: sub-style-recommender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_APPOINTMENT_MANAGER_ID }}"
+      },
+      "id": "exec-check-availability",
+      "name": "Execute: sub-appointment-manager (Availability)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_MEMORY_WRITER_ID }}"
+      },
+      "id": "exec-memory-writer",
+      "name": "Execute: sub-memory-writer",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ response: $('Execute: sub-ai-stylist-agent').item.json.response_text, images: $('Execute: sub-style-recommender').item.json?.recommended_styles ?? [], booking_result: $('Execute: sub-appointment-manager (Book)').item.json ?? null, session_id: $('Webhook: Web Chat Intake').item.json.body.session_id }) }}"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: Web Chat Intake": {
+      "main": [
+        [
+          {
+            "node": "IF: Has Media?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Media?": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-media-analysis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sub-customer-lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-media-analysis": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-customer-lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-customer-lookup": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-memory-retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-memory-retrieval": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-ai-stylist-agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-ai-stylist-agent": {
+      "main": [
+        [
+          {
+            "node": "IF: Has Tool Calls?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Tool Calls?": {
+      "main": [
+        [
+          {
+            "node": "Switch: Tool Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sub-memory-writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Tool Router": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-appointment-manager (Book)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sub-style-recommender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sub-appointment-manager (Availability)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-appointment-manager (Book)": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-memory-writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-style-recommender": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-memory-writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-appointment-manager (Availability)": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-memory-writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-memory-writer": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "main-workflow"
+    },
+    {
+      "name": "production"
+    }
+  ]
+}

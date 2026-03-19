@@ -1,0 +1,145 @@
+.booking-section {
+    background-color: var(--bg-secondary);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Add a glowing decorative element */
+.booking-section::before {
+    content: '';
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(166, 123, 91, 0.05) 0%, rgba(26, 26, 29, 0) 70%);
+    top: -100px;
+    right: -200px;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.booking-wrapper {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    padding: 4rem;
+    align-items: center;
+}
+
+.booking-desc {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.booking-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.form-input option {
+    background: var(--bg-color);
+    color: var(--text-primary);
+}
+
+.w-full {
+    width: 100%;
+}
+
+.booking-calendar-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.calendar-title {
+    margin-bottom: 1.5rem;
+    font-size: 1.5rem;
+}
+
+.calendar-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.selected-date {
+    margin-top: 1.5rem;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+@media (max-width: 992px) {
+    .booking-wrapper {
+        grid-template-columns: 1fr;
+        padding: 3rem 2rem;
+    }
+}
+
+.booking-error {
+    color: #ef4444;
+    font-size: 0.9rem;
+    margin: -0.5rem 0 0;
+    padding: 0.75rem 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.deposit-note {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-align: center;
+    opacity: 0.7;
+    margin-top: -0.5rem;
+    line-height: 1.5;
+}
+
+.booking-spinner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.booking-spinner::before {
+    content: '';
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+@media (max-width: 576px) {
+    .booking-wrapper {
+        padding: 2rem 1.5rem;
+    }
+}

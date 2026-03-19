@@ -1,0 +1,238 @@
+{
+  "name": "cron-30min-sms-reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "cron-10min",
+      "name": "Cron: Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Runs every 10 minutes. Catches appointments 25-35 minutes out."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.customer_id, a.service_type, a.start_time, a.end_time, a.notes, c.name AS customer_name, c.phone AS customer_phone FROM appointments a JOIN customers c ON a.customer_id = c.id WHERE a.start_time >= NOW() + INTERVAL '25 minutes' AND a.start_time <= NOW() + INTERVAL '35 minutes' AND a.status = 'confirmed' AND a.id NOT IN ( SELECT (metadata->>'appointment_id')::uuid FROM analytics_events WHERE event_type = 'reminder_30min_sms_sent' AND created_at > NOW() - INTERVAL '1 hour' )",
+        "options": {}
+      },
+      "id": "query-30min-appts",
+      "name": "Supabase: Get 30min-Away Appointments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-30min",
+      "name": "IF: Has Appointments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "split-30min",
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const appt = $input.first().json;\nconst name = appt.customer_name?.split(' ')[0] || 'love';\nconst startDate = new Date(appt.start_time);\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\nconst smsBody = `\u23f0 ${name}, your appointment at Sweet Hand Braids is in about 30 minutes! (${timeStr})\\n\\nWe're getting everything ready for you! \ud83d\udc95\\n\\nRunning late? Just text us and we'll adjust.\\n\u2014 Sweet Hand Braids`;\n\nreturn [{ json: { smsBody, customer_phone: appt.customer_phone, appointment_id: appt.id, customer_id: appt.customer_id } }];"
+      },
+      "id": "build-30min-sms",
+      "name": "Code: Build 30min SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customer_phone }}",
+        "body": "={{ $json.smsBody }}"
+      },
+      "id": "sms-30min",
+      "name": "Twilio: Send 30min SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        260
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-creds",
+          "name": "Twilio"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO analytics_events (event_type, customer_id, channel, metadata) VALUES ('reminder_30min_sms_sent', '{{ $('Code: Build 30min SMS').first().json.customer_id }}', 'automated', '{{ JSON.stringify({ appointment_id: $('Code: Build 30min SMS').first().json.appointment_id }) }}')",
+        "options": {}
+      },
+      "id": "log-30min",
+      "name": "Supabase: Log 30min Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        260
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron: Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Get 30min-Away Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Get 30min-Away Appointments": {
+      "main": [
+        [
+          {
+            "node": "IF: Has Appointments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Appointments?": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Split Into Batches": {
+      "main": [
+        [
+          {
+            "node": "Code: Build 30min SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code: Build 30min SMS": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send 30min SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: Send 30min SMS": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Log 30min Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Log 30min Sent": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "cron"
+    },
+    {
+      "name": "reminders"
+    }
+  ]
+}

@@ -1,0 +1,410 @@
+{
+  "name": "main-vapi-reminder-callback",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi-reminder-callback",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-callback",
+      "name": "Webhook: VAPI Reminder Callback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Receives events from outbound VAPI reminder calls (function-call results, end-of-call-report)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst messageType = body.message?.type || 'unknown';\nconst call = body.message?.call || {};\nconst customerPhone = call.customer?.number || null;\n\nreturn [{\n  json: {\n    messageType,\n    customerPhone,\n    callId: call.id,\n    functionCall: body.message?.functionCall || null,\n    endOfCallReport: body.message?.endOfCallReport || null,\n    statusUpdate: body.message?.status || null\n  }\n}];"
+      },
+      "id": "parse-callback",
+      "name": "Code: Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "function-call",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Function Call"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "end-of-call-report",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "End of Call"
+            }
+          ]
+        },
+        "mode": "rules",
+        "options": {
+          "fallbackOutputType": "extra"
+        }
+      },
+      "id": "switch-callback-type",
+      "name": "Switch: Callback Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle log_confirmation_status function call from the reminder agent\nconst funcCall = $input.first().json.functionCall;\nconst params = funcCall?.parameters || {};\nconst status = params.status || 'unknown';\nconst notes = params.notes || '';\n\n// If customer wants to cancel, flag for human follow-up\nconst needsFollowUp = ['wants_cancel', 'wants_reschedule'].includes(status);\n\nreturn [{\n  json: {\n    result: JSON.stringify({\n      acknowledged: true,\n      status: status,\n      message: status === 'confirmed' \n        ? 'Customer confirmed. Tell them you are excited to see them!'\n        : status === 'wants_cancel'\n        ? 'Noted. Let the customer know a team member will reach out shortly to process the cancellation.'\n        : status === 'wants_reschedule'\n        ? 'Noted. Let the customer know a team member will call them back to find a new time.'\n        : 'Noted. Thank the customer for their time.'\n    }),\n    needs_follow_up: needsFollowUp,\n    confirmation_status: status,\n    confirmation_notes: notes\n  }\n}];"
+      },
+      "id": "handle-function-call",
+      "name": "Code: Handle Confirmation Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ result: $json.result }) }}"
+      },
+      "id": "respond-function",
+      "name": "Respond: Function Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process end-of-call report from reminder call\nconst input = $input.first().json;\nconst report = input.endOfCallReport || {};\nconst phone = input.customerPhone;\n\nreturn [{\n  json: {\n    customer_phone: phone,\n    call_id: input.callId,\n    transcript: report.transcript || '',\n    summary: report.summary || '',\n    duration_seconds: report.durationSeconds || 0,\n    ended_reason: report.endedReason || 'unknown',\n    cost: report.cost || 0\n  }\n}];"
+      },
+      "id": "parse-eoc-report",
+      "name": "Code: Parse End-of-Call Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name FROM customers WHERE phone = '{{ $json.customer_phone }}' LIMIT 1",
+        "options": {}
+      },
+      "id": "lookup-customer-eoc",
+      "name": "Supabase: Lookup Customer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        980,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO interaction_log (customer_id, session_id, channel, interaction_type, user_message, assistant_response, metadata) VALUES ('{{ $('Supabase: Lookup Customer').first().json[0]?.id }}', '{{ $('Code: Parse End-of-Call Report').first().json.call_id }}', 'voice', 'call_transcript', '{{ $('Code: Parse End-of-Call Report').first().json.transcript.replace(/'/g, \"''\") }}', '{{ $('Code: Parse End-of-Call Report').first().json.summary.replace(/'/g, \"''\") }}', '{{ JSON.stringify({ call_type: \"outbound_reminder\", duration_seconds: $('Code: Parse End-of-Call Report').first().json.duration_seconds, ended_reason: $('Code: Parse End-of-Call Report').first().json.ended_reason }) }}')",
+        "options": {}
+      },
+      "id": "store-reminder-transcript",
+      "name": "Supabase: Store Reminder Transcript",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      },
+      "notes": "Store the outbound reminder call transcript in interaction_log for memory/RAG"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if customer wanted to cancel/reschedule during reminder call\n// If so, flag for salon owner via SMS alert\nconst transcript = $('Code: Parse End-of-Call Report').first().json.transcript.toLowerCase();\nconst customerName = $('Supabase: Lookup Customer').first().json[0]?.name || 'Customer';\nconst phone = $('Code: Parse End-of-Call Report').first().json.customer_phone;\n\nconst wantsCancel = transcript.includes('cancel') || transcript.includes('can\\'t make it');\nconst wantsReschedule = transcript.includes('reschedule') || transcript.includes('different time') || transcript.includes('change');\nconst noAnswer = $('Code: Parse End-of-Call Report').first().json.ended_reason === 'voicemail';\n\nreturn [{\n  json: {\n    needs_followup: wantsCancel || wantsReschedule,\n    followup_reason: wantsCancel ? 'wants_cancel' : wantsReschedule ? 'wants_reschedule' : noAnswer ? 'no_answer' : 'confirmed',\n    customer_name: customerName,\n    customer_phone: phone,\n    alert_message: wantsCancel \n      ? `\u26a0\ufe0f ALERT: ${customerName} (${phone}) wants to CANCEL their appointment today. Please follow up.`\n      : wantsReschedule\n      ? `\ud83d\udcc5 HEADS UP: ${customerName} (${phone}) wants to RESCHEDULE their appointment today. Please follow up.`\n      : noAnswer\n      ? `\ud83d\udcde ${customerName} (${phone}) didn't answer their reminder call. Their appointment is in ~1 hour.`\n      : null\n  }\n}];"
+      },
+      "id": "check-followup-needed",
+      "name": "Code: Check If Follow-Up Needed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_followup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-needs-followup",
+      "name": "IF: Needs Follow-Up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $vars.SALON_OWNER_PHONE }}",
+        "body": "={{ $json.alert_message }}"
+      },
+      "id": "sms-alert-owner",
+      "name": "Twilio: Alert Salon Owner",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        340
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-creds",
+          "name": "Twilio"
+        }
+      },
+      "notes": "Alert the salon owner if customer wants to cancel/reschedule or didn't answer the reminder call"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok' }) }}"
+      },
+      "id": "respond-eoc",
+      "name": "Respond: EOC Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok' }) }}"
+      },
+      "id": "respond-other",
+      "name": "Respond: Other Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        760,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: VAPI Reminder Callback": {
+      "main": [
+        [
+          {
+            "node": "Code: Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Switch: Callback Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Callback Type": {
+      "main": [
+        [
+          {
+            "node": "Code: Handle Confirmation Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Parse End-of-Call Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Other Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Handle Confirmation Status": {
+      "main": [
+        [
+          {
+            "node": "Respond: Function Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Parse End-of-Call Report": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Lookup Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Lookup Customer": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Store Reminder Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Store Reminder Transcript": {
+      "main": [
+        [
+          {
+            "node": "Code: Check If Follow-Up Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Check If Follow-Up Needed": {
+      "main": [
+        [
+          {
+            "node": "IF: Needs Follow-Up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Needs Follow-Up?": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Alert Salon Owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: EOC Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: Alert Salon Owner": {
+      "main": [
+        [
+          {
+            "node": "Respond: EOC Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "main-workflow"
+    },
+    {
+      "name": "vapi-outbound"
+    },
+    {
+      "name": "reminders"
+    }
+  ]
+}

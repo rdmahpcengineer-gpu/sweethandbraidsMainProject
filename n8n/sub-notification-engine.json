@@ -1,0 +1,691 @@
+{
+  "name": "sub-notification-engine",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        400
+      ],
+      "notes": "Input: { customer_phone, customer_email, customer_name, notification_type, appointment_details, channel }"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "booking_confirmation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Booking Confirmation"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "reminder_24h",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "24hr Reminder"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "reminder_call_1h",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "1hr Call Reminder"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "cancellation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Cancellation"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Reschedule"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.notification_type }}",
+                    "rightValue": "enquiry_response",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "Enquiry Response"
+            }
+          ]
+        },
+        "mode": "rules",
+        "options": {
+          "fallbackOutputType": "extra"
+        }
+      },
+      "id": "switch-notification-type",
+      "name": "Switch: Notification Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        320,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// BOOKING CONFIRMATION \u2014 Email + SMS\n// ========================================\nconst input = $input.first().json;\nconst appt = input.appointment_details;\nconst name = input.customer_name?.split(' ')[0] || 'love';\n\n// Format date/time nicely\nconst startDate = new Date(appt.start_time);\nconst dateStr = startDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\nconst endDate = new Date(appt.end_time);\nconst endTimeStr = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\n// SMS body (concise)\nconst smsBody = `Hey ${name}! \u2728 Your appointment at Sweet Hand Braids is CONFIRMED!\\n\\n\ud83d\udcc5 ${dateStr}\\n\u23f0 ${timeStr} \u2014 ${endTimeStr}\\n\ud83d\udc87\u200d\u2640\ufe0f ${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}\\n${appt.notes ? `\ud83d\udcdd ${appt.notes}` : ''}\\n\\nReply CANCEL to cancel or RESCHEDULE to change.\\n\\nSee you soon! \ud83d\udc95\\n\u2014 Sweet Hand Braids`;\n\n// Email HTML body\nconst emailSubject = `\u2705 Appointment Confirmed \u2014 ${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())} at Sweet Hand Braids`;\n\nconst emailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: 'Segoe UI', Arial, sans-serif; background: #FFF9F5; margin: 0; padding: 0; }\n    .container { max-width: 600px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }\n    .header { background: linear-gradient(135deg, #D4A574 0%, #C48B5C 100%); padding: 32px; text-align: center; }\n    .header h1 { color: #FFFFFF; font-size: 24px; margin: 0; font-weight: 600; }\n    .header p { color: rgba(255,255,255,0.9); font-size: 14px; margin: 8px 0 0; }\n    .body-content { padding: 32px; }\n    .greeting { font-size: 18px; color: #2D2D2D; margin-bottom: 16px; }\n    .card { background: #FFF9F5; border: 1px solid #F0E6DC; border-radius: 12px; padding: 24px; margin: 20px 0; }\n    .card-row { display: flex; align-items: center; margin: 12px 0; font-size: 15px; color: #4A4A4A; }\n    .card-row .icon { width: 24px; margin-right: 12px; font-size: 18px; }\n    .card-row .label { font-weight: 600; color: #2D2D2D; min-width: 80px; }\n    .cta-section { text-align: center; margin: 28px 0; }\n    .cta-btn { display: inline-block; background: #D4A574; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; }\n    .actions { display: flex; justify-content: center; gap: 16px; margin: 20px 0; }\n    .action-link { color: #D4A574; text-decoration: underline; font-size: 14px; }\n    .footer { background: #FAF5F0; padding: 24px; text-align: center; border-top: 1px solid #F0E6DC; }\n    .footer p { color: #8A8A8A; font-size: 12px; margin: 4px 0; }\n    .tips { background: #F0F9F0; border-left: 4px solid #6BBF6B; padding: 16px; border-radius: 0 8px 8px 0; margin: 20px 0; }\n    .tips h3 { margin: 0 0 8px; font-size: 14px; color: #2D7A2D; }\n    .tips ul { margin: 0; padding-left: 20px; font-size: 13px; color: #4A4A4A; line-height: 1.8; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <div class=\"header\">\n      <h1>\u2728 Sweet Hand Braids \u2728</h1>\n      <p>Your Appointment is Confirmed!</p>\n    </div>\n    <div class=\"body-content\">\n      <p class=\"greeting\">Hey ${name}! \ud83d\udc95</p>\n      <p style=\"color: #4A4A4A; font-size: 15px; line-height: 1.6;\">We're so excited to see you! Here are your appointment details:</p>\n      \n      <div class=\"card\">\n        <div class=\"card-row\">\n          <span class=\"icon\">\ud83d\udcc5</span>\n          <span class=\"label\">Date:</span>\n          <span>${dateStr}</span>\n        </div>\n        <div class=\"card-row\">\n          <span class=\"icon\">\u23f0</span>\n          <span class=\"label\">Time:</span>\n          <span>${timeStr} \u2014 ${endTimeStr}</span>\n        </div>\n        <div class=\"card-row\">\n          <span class=\"icon\">\ud83d\udc87\u200d\u2640\ufe0f</span>\n          <span class=\"label\">Service:</span>\n          <span>${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}</span>\n        </div>\n        <div class=\"card-row\">\n          <span class=\"icon\">\u23f1\ufe0f</span>\n          <span class=\"label\">Duration:</span>\n          <span>~${appt.duration_minutes} minutes</span>\n        </div>\n        ${appt.price_quoted ? `<div class=\"card-row\"><span class=\"icon\">\ud83d\udcb0</span><span class=\"label\">Price:</span><span>$${appt.price_quoted}</span></div>` : ''}\n        ${appt.notes ? `<div class=\"card-row\"><span class=\"icon\">\ud83d\udcdd</span><span class=\"label\">Notes:</span><span>${appt.notes}</span></div>` : ''}\n      </div>\n\n      <div class=\"tips\">\n        <h3>\ud83d\udccb Before Your Appointment:</h3>\n        <ul>\n          <li>Wash and deep condition your hair 1-2 days before</li>\n          <li>Detangle thoroughly \u2014 it speeds up install time!</li>\n          <li>Bring any reference photos of the exact look you want</li>\n          <li>If you have any hair allergies, let us know in advance</li>\n        </ul>\n      </div>\n\n      <div class=\"actions\">\n        <a href=\"mailto:hello@sweethandbraids.com?subject=Reschedule%20Appointment\" class=\"action-link\">Reschedule</a>\n        <span style=\"color: #CCC;\">|</span>\n        <a href=\"mailto:hello@sweethandbraids.com?subject=Cancel%20Appointment\" class=\"action-link\">Cancel Appointment</a>\n      </div>\n\n      <p style=\"color: #8A8A8A; font-size: 13px; text-align: center;\">Or reply <strong>CANCEL</strong> or <strong>RESCHEDULE</strong> to your confirmation text.</p>\n    </div>\n    <div class=\"footer\">\n      <p><strong>Sweet Hand Braids</strong></p>\n      <p>\ud83d\udccd [Salon Address] | \ud83d\udcde [Salon Phone]</p>\n      <p>\ud83c\udf10 sweethandbraids.com</p>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    smsBody,\n    emailSubject,\n    emailHtml,\n    customer_phone: input.customer_phone,\n    customer_email: input.customer_email,\n    customer_name: input.customer_name\n  }\n}];"
+      },
+      "id": "build-booking-confirmation",
+      "name": "Code: Build Booking Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customer_phone }}",
+        "body": "={{ $json.smsBody }}"
+      },
+      "id": "sms-booking-confirm",
+      "name": "Twilio: Send Booking SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        800,
+        60
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-creds",
+          "name": "Twilio"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Code: Build Booking Confirmation').item.json.customer_email }}",
+        "subject": "={{ $('Code: Build Booking Confirmation').item.json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $('Code: Build Booking Confirmation').item.json.emailHtml }}",
+        "options": {
+          "replyTo": "mabikamullan@gmail.com",
+          "senderName": "Sweet Hand Braids"
+        }
+      },
+      "id": "email-booking-confirm",
+      "name": "Gmail: Send Booking Confirmation",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        180
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Gmailaccount3",
+          "name": "Gmailaccount3"
+        }
+      },
+      "notes": "Using Gmail OAuth2 - Gmailaccount3 (mabikamullan@gmail.com)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// 24-HOUR SMS REMINDER\n// ========================================\nconst input = $input.first().json;\nconst appt = input.appointment_details;\nconst name = input.customer_name?.split(' ')[0] || 'love';\n\nconst startDate = new Date(appt.start_time);\nconst dateStr = startDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\nconst smsBody = `Hey ${name}! \ud83d\udc95 Just a reminder \u2014 your ${appt.service_type?.replace(/_/g, ' ')} appointment is TOMORROW!\\n\\n\ud83d\udcc5 ${dateStr}\\n\u23f0 ${timeStr}\\n\\n\ud83d\udccb Quick prep tips:\\n\u2022 Wash & condition your hair today\\n\u2022 Detangle thoroughly tonight\\n\u2022 Bring your style inspo pics!\\n\\nReply CONFIRM to confirm or RESCHEDULE if you need to change.\\n\\nCan't wait to see you! \u2728\\n\u2014 Sweet Hand Braids`;\n\nconst emailSubject = `\u23f0 Reminder: Your Appointment Tomorrow at Sweet Hand Braids`;\n\nconst emailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: 'Segoe UI', Arial, sans-serif; background: #FFF9F5; margin: 0; padding: 0; }\n    .container { max-width: 600px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }\n    .header { background: linear-gradient(135deg, #7EB5D6 0%, #5A9BBF 100%); padding: 32px; text-align: center; }\n    .header h1 { color: #FFFFFF; font-size: 22px; margin: 0; }\n    .header p { color: rgba(255,255,255,0.9); font-size: 14px; margin: 8px 0 0; }\n    .body-content { padding: 32px; }\n    .card { background: #F0F7FC; border: 1px solid #D4E8F5; border-radius: 12px; padding: 24px; margin: 20px 0; }\n    .card-row { margin: 10px 0; font-size: 15px; color: #4A4A4A; }\n    .prep-box { background: #FFF9F0; border-left: 4px solid #E8A84C; padding: 16px; border-radius: 0 8px 8px 0; margin: 20px 0; }\n    .footer { background: #FAF5F0; padding: 24px; text-align: center; border-top: 1px solid #F0E6DC; }\n    .footer p { color: #8A8A8A; font-size: 12px; margin: 4px 0; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <div class=\"header\">\n      <h1>\u23f0 Appointment Reminder</h1>\n      <p>See you tomorrow!</p>\n    </div>\n    <div class=\"body-content\">\n      <p style=\"font-size: 18px; color: #2D2D2D;\">Hey ${name}! \ud83d\udc95</p>\n      <p style=\"color: #4A4A4A; line-height: 1.6;\">Just a friendly reminder that your appointment is <strong>tomorrow</strong>!</p>\n      <div class=\"card\">\n        <div class=\"card-row\">\ud83d\udcc5 <strong>${dateStr}</strong></div>\n        <div class=\"card-row\">\u23f0 <strong>${timeStr}</strong></div>\n        <div class=\"card-row\">\ud83d\udc87\u200d\u2640\ufe0f <strong>${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}</strong></div>\n      </div>\n      <div class=\"prep-box\">\n        <strong>\ud83d\udca1 Prep Tips for Tonight:</strong>\n        <ul style=\"margin: 8px 0 0; padding-left: 20px; line-height: 1.8; font-size: 14px;\">\n          <li>Wash and deep condition your hair</li>\n          <li>Detangle thoroughly \u2014 this saves install time!</li>\n          <li>Get your reference photos ready</li>\n          <li>Get a good night's sleep \u2014 long braiding sessions need energy!</li>\n        </ul>\n      </div>\n      <p style=\"text-align: center; font-size: 14px; color: #8A8A8A;\">Need to reschedule? Reply to this email or text RESCHEDULE to your confirmation number.</p>\n    </div>\n    <div class=\"footer\">\n      <p><strong>Sweet Hand Braids</strong></p>\n      <p>\ud83d\udccd [Salon Address] | \ud83d\udcde [Salon Phone]</p>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    smsBody,\n    emailSubject,\n    emailHtml,\n    customer_phone: input.customer_phone,\n    customer_email: input.customer_email,\n    customer_name: input.customer_name\n  }\n}];"
+      },
+      "id": "build-24h-reminder",
+      "name": "Code: Build 24hr Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customer_phone }}",
+        "body": "={{ $json.smsBody }}"
+      },
+      "id": "sms-24h-reminder",
+      "name": "Twilio: Send 24hr SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        800,
+        260
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-creds",
+          "name": "Twilio"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Code: Build 24hr Reminder').item.json.customer_email }}",
+        "subject": "={{ $('Code: Build 24hr Reminder').item.json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $('Code: Build 24hr Reminder').item.json.emailHtml }}",
+        "options": {
+          "replyTo": "mabikamullan@gmail.com",
+          "senderName": "Sweet Hand Braids"
+        }
+      },
+      "id": "email-24h-reminder",
+      "name": "Gmail: Send 24hr Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        380
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Gmailaccount3",
+          "name": "Gmailaccount3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// 1-HOUR OUTBOUND VAPI REMINDER CALL\n// Triggers VAPI to call customer with a warm reminder\n// ========================================\nconst input = $input.first().json;\nconst appt = input.appointment_details;\nconst name = input.customer_name?.split(' ')[0] || 'love';\n\nconst startDate = new Date(appt.start_time);\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\n// Build the VAPI outbound call payload\nconst vapiPayload = {\n  name: `Reminder call to ${input.customer_name}`,\n  assistantId: null,\n  assistantOverrides: {\n    firstMessage: `Hey ${name}! This is Sweet Hand Braids calling with a quick reminder \u2014 your ${appt.service_type?.replace(/_/g, ' ')} appointment is coming up at ${timeStr} today! Just wanted to make sure you're all set. Are you still good for today?`,\n    model: {\n      provider: 'openai',\n      model: 'gpt-4o',\n      temperature: 0.7,\n      maxTokens: 200,\n      systemMessage: `You are SweetHand, the AI stylist at Sweet Hand Braids, making a brief outbound reminder call.\\n\\nCONTEXT:\\n- Customer: ${input.customer_name}\\n- Appointment: ${appt.service_type?.replace(/_/g, ' ')} at ${timeStr} today\\n- Duration: ~${appt.duration_minutes} minutes\\n${appt.notes ? `- Notes: ${appt.notes}` : ''}\\n\\nRULES:\\n1. This is a SHORT reminder call \u2014 30-60 seconds max\\n2. Be warm, friendly, and brief\\n3. Confirm they're still coming\\n4. If they want to cancel or reschedule, say you'll have the team reach out to help \u2014 do NOT try to rebook on this call\\n5. Remind them of any prep tips (detangled hair, reference photos)\\n6. End warmly: \"Can't wait to see you! Bye love!\"\\n7. If voicemail: leave a quick message and hang up`,\n      tools: [\n        {\n          type: 'function',\n          function: {\n            name: 'log_confirmation_status',\n            description: 'Log whether the customer confirmed, wants to cancel, or did not answer',\n            parameters: {\n              type: 'object',\n              properties: {\n                status: { type: 'string', enum: ['confirmed', 'wants_cancel', 'wants_reschedule', 'voicemail', 'no_answer'], description: 'Customer response to reminder' },\n                notes: { type: 'string', description: 'Any additional notes from the call' }\n              },\n              required: ['status']\n            }\n          }\n        }\n      ]\n    },\n    voice: {\n      provider: '11labs',\n      voiceId: 'EXAVITQu4vr4xnSDxMaL'\n    },\n    serverUrl: `https://n8n.sweethandbraids.com/webhook/vapi-reminder-callback`,\n    endCallFunctionEnabled: true,\n    maxDurationSeconds: 120,\n    silenceTimeoutSeconds: 15\n  },\n  customer: {\n    number: input.customer_phone\n  },\n  phoneNumberId: null  // Set to your VAPI outbound phone number ID\n};\n\nreturn [{\n  json: {\n    vapiPayload,\n    customer_phone: input.customer_phone,\n    customer_name: input.customer_name,\n    appointment_id: appt.id\n  }\n}];"
+      },
+      "id": "build-1h-call-reminder",
+      "name": "Code: Build 1hr Call Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call/phone",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.VAPI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "JSON",
+              "value": "={{ JSON.stringify($json.vapiPayload) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "vapi-outbound-call",
+      "name": "HTTP: VAPI Outbound Reminder Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        520
+      ],
+      "notes": "Triggers VAPI to place an outbound phone call to the customer 1 hour before appointment"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Also send a backup SMS at 30 min mark\nconst input = $input.first().json;\nconst name = $('Code: Build 1hr Call Payload').first().json.customer_name?.split(' ')[0] || 'love';\nconst appt = $('Start').first().json.appointment_details;\nconst startDate = new Date(appt.start_time);\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\nconst smsBody = `\u23f0 ${name}, your appointment at Sweet Hand Braids is in about 30 minutes! (${timeStr})\\n\\nWe're getting everything ready for you! \ud83d\udc95\\n\\nRunning late? Just give us a quick text and we'll adjust.\\n\u2014 Sweet Hand Braids`;\n\nreturn [{ json: { smsBody, customer_phone: $('Code: Build 1hr Call Payload').first().json.customer_phone } }];"
+      },
+      "id": "build-30min-sms",
+      "name": "Code: Build 30min Backup SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// CANCELLATION NOTICE \u2014 Email + SMS\n// ========================================\nconst input = $input.first().json;\nconst appt = input.appointment_details;\nconst name = input.customer_name?.split(' ')[0] || 'love';\n\nconst startDate = new Date(appt.start_time);\nconst dateStr = startDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\n\nconst smsBody = `Hey ${name}, your ${appt.service_type?.replace(/_/g, ' ')} appointment on ${dateStr} has been cancelled.\\n\\nWe'd love to rebook you! Reply BOOK or visit sweethandbraids.com anytime.\\n\\n\u2014 Sweet Hand Braids \ud83d\udc95`;\n\nconst emailSubject = `Appointment Cancelled \u2014 Sweet Hand Braids`;\nconst emailHtml = `\n<!DOCTYPE html>\n<html><head><style>\n  body { font-family: 'Segoe UI', Arial, sans-serif; background: #FFF9F5; }\n  .container { max-width: 600px; margin: 0 auto; background: #FFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }\n  .header { background: linear-gradient(135deg, #E88B8B 0%, #D06060 100%); padding: 32px; text-align: center; }\n  .header h1 { color: #FFF; font-size: 22px; margin: 0; }\n  .body-content { padding: 32px; }\n  .rebook-btn { display: inline-block; background: #D4A574; color: #FFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; }\n  .footer { background: #FAF5F0; padding: 24px; text-align: center; }\n  .footer p { color: #8A8A8A; font-size: 12px; margin: 4px 0; }\n</style></head><body>\n  <div class=\"container\">\n    <div class=\"header\"><h1>Appointment Cancelled</h1></div>\n    <div class=\"body-content\">\n      <p style=\"font-size: 18px;\">Hey ${name},</p>\n      <p>Your <strong>${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}</strong> appointment on <strong>${dateStr}</strong> has been cancelled.</p>\n      <p>We totally understand \u2014 life happens! Whenever you're ready to rebook, we're here for you.</p>\n      <div style=\"text-align: center; margin: 28px 0;\"><a href=\"https://sweethandbraids.com\" class=\"rebook-btn\">Rebook Now</a></div>\n      <p style=\"color: #8A8A8A; font-size: 13px; text-align: center;\">Or just text us or call our AI stylist to book your next visit!</p>\n    </div>\n    <div class=\"footer\"><p><strong>Sweet Hand Braids</strong></p><p>sweethandbraids.com</p></div>\n  </div>\n</body></html>`;\n\nreturn [{ json: { smsBody, emailSubject, emailHtml, customer_phone: input.customer_phone, customer_email: input.customer_email } }];"
+      },
+      "id": "build-cancellation",
+      "name": "Code: Build Cancellation Notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// RESCHEDULE CONFIRMATION \u2014 Email + SMS\n// ========================================\nconst input = $input.first().json;\nconst appt = input.appointment_details;\nconst name = input.customer_name?.split(' ')[0] || 'love';\n\nconst startDate = new Date(appt.start_time);\nconst dateStr = startDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });\nconst timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });\n\nconst smsBody = `Hey ${name}! \u2705 Your appointment has been rescheduled!\\n\\n\ud83d\udcc5 NEW DATE: ${dateStr}\\n\u23f0 NEW TIME: ${timeStr}\\n\ud83d\udc87\u200d\u2640\ufe0f ${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}\\n\\nSee you then! \ud83d\udc95\\n\u2014 Sweet Hand Braids`;\n\nconst emailSubject = `\ud83d\udcc5 Rescheduled: Your New Appointment at Sweet Hand Braids`;\nconst emailHtml = `\n<!DOCTYPE html>\n<html><head><style>\n  body { font-family: 'Segoe UI', Arial, sans-serif; background: #FFF9F5; }\n  .container { max-width: 600px; margin: 0 auto; background: #FFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }\n  .header { background: linear-gradient(135deg, #7EB5D6 0%, #5A9BBF 100%); padding: 32px; text-align: center; }\n  .header h1 { color: #FFF; font-size: 22px; margin: 0; }\n  .body-content { padding: 32px; }\n  .card { background: #F0F7FC; border: 1px solid #D4E8F5; border-radius: 12px; padding: 24px; margin: 20px 0; }\n  .footer { background: #FAF5F0; padding: 24px; text-align: center; }\n  .footer p { color: #8A8A8A; font-size: 12px; margin: 4px 0; }\n</style></head><body>\n  <div class=\"container\">\n    <div class=\"header\"><h1>\ud83d\udcc5 Appointment Rescheduled</h1></div>\n    <div class=\"body-content\">\n      <p style=\"font-size: 18px;\">Hey ${name}! \ud83d\udc95</p>\n      <p>Your appointment has been successfully rescheduled. Here are your new details:</p>\n      <div class=\"card\">\n        <p>\ud83d\udcc5 <strong>${dateStr}</strong></p>\n        <p>\u23f0 <strong>${timeStr}</strong></p>\n        <p>\ud83d\udc87\u200d\u2640\ufe0f <strong>${appt.service_type?.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}</strong></p>\n      </div>\n      <p style=\"text-align: center; color: #8A8A8A;\">Need to make another change? Just text or call us!</p>\n    </div>\n    <div class=\"footer\"><p><strong>Sweet Hand Braids</strong></p><p>sweethandbraids.com</p></div>\n  </div>\n</body></html>`;\n\nreturn [{ json: { smsBody, emailSubject, emailHtml, customer_phone: input.customer_phone, customer_email: input.customer_email } }];"
+      },
+      "id": "build-reschedule",
+      "name": "Code: Build Reschedule Notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========================================\n// ENQUIRY AUTO-RESPONSE \u2014 Email + SMS\n// For customers who ask questions via website contact form\n// ========================================\nconst input = $input.first().json;\nconst name = input.customer_name?.split(' ')[0] || 'love';\nconst enquiry = input.enquiry_details || {};\n\nconst smsBody = `Hey ${name}! Thanks for reaching out to Sweet Hand Braids! \ud83d\udc95\\n\\nWe got your message and our AI stylist is ready to help you right now at sweethandbraids.com \u2014 just click \"Chat with Stylist\" for instant answers!\\n\\nOr call us at [SALON_PHONE] to talk to our AI stylist by phone.\\n\\nWe'll also follow up by email shortly!\\n\u2014 Sweet Hand Braids \u2728`;\n\nconst emailSubject = `Thanks for contacting Sweet Hand Braids! \ud83d\udc95`;\nconst emailHtml = `\n<!DOCTYPE html>\n<html><head><style>\n  body { font-family: 'Segoe UI', Arial, sans-serif; background: #FFF9F5; }\n  .container { max-width: 600px; margin: 0 auto; background: #FFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }\n  .header { background: linear-gradient(135deg, #D4A574 0%, #C48B5C 100%); padding: 32px; text-align: center; }\n  .header h1 { color: #FFF; font-size: 22px; margin: 0; }\n  .body-content { padding: 32px; }\n  .cta-btn { display: inline-block; background: #D4A574; color: #FFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; }\n  .cta-secondary { display: inline-block; border: 2px solid #D4A574; color: #D4A574; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; }\n  .services { background: #FFF9F5; border-radius: 12px; padding: 24px; margin: 20px 0; }\n  .services h3 { margin: 0 0 12px; color: #C48B5C; }\n  .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }\n  .service-item { padding: 8px 12px; background: #FFF; border-radius: 8px; font-size: 13px; text-align: center; }\n  .footer { background: #FAF5F0; padding: 24px; text-align: center; }\n  .footer p { color: #8A8A8A; font-size: 12px; margin: 4px 0; }\n</style></head><body>\n  <div class=\"container\">\n    <div class=\"header\">\n      <h1>\u2728 Sweet Hand Braids \u2728</h1>\n      <p style=\"color: rgba(255,255,255,0.9); margin: 8px 0 0;\">Thanks for reaching out!</p>\n    </div>\n    <div class=\"body-content\">\n      <p style=\"font-size: 18px; color: #2D2D2D;\">Hey ${name}! \ud83d\udc95</p>\n      <p style=\"color: #4A4A4A; line-height: 1.6;\">Thanks for your interest in Sweet Hand Braids! We'd love to help you find your perfect style.</p>\n      \n      <p style=\"color: #4A4A4A; line-height: 1.6;\">The fastest way to get answers is through our <strong>AI Stylist</strong> \u2014 she's available 24/7 and can help you:</p>\n      <ul style=\"color: #4A4A4A; line-height: 2;\">\n        <li>Find the perfect braiding style for your hair</li>\n        <li>Check pricing and availability</li>\n        <li>Book an appointment instantly</li>\n        <li>Upload a photo for personalized recommendations</li>\n      </ul>\n\n      <div style=\"text-align: center; margin: 28px 0;\">\n        <a href=\"https://sweethandbraids.com\" class=\"cta-btn\">\ud83d\udcac Chat with AI Stylist</a>\n        <br><br>\n        <a href=\"tel:[SALON_PHONE]\" class=\"cta-secondary\">\ud83d\udcde Call Our Stylist</a>\n      </div>\n\n      <div class=\"services\">\n        <h3>Our Most Popular Styles</h3>\n        <div class=\"service-grid\">\n          <div class=\"service-item\">Knotless Box Braids</div>\n          <div class=\"service-item\">Goddess Locs</div>\n          <div class=\"service-item\">Passion Twists</div>\n          <div class=\"service-item\">Butterfly Locs</div>\n          <div class=\"service-item\">Feed-In Cornrows</div>\n          <div class=\"service-item\">Fulani Braids</div>\n        </div>\n      </div>\n\n      <p style=\"color: #8A8A8A; font-size: 13px; text-align: center;\">A team member will also follow up personally if needed!</p>\n    </div>\n    <div class=\"footer\">\n      <p><strong>Sweet Hand Braids</strong></p>\n      <p>\ud83d\udccd [Salon Address] | \ud83d\udcde [Salon Phone]</p>\n      <p>\ud83c\udf10 sweethandbraids.com</p>\n    </div>\n  </div>\n</body></html>`;\n\nreturn [{ json: { smsBody, emailSubject, emailHtml, customer_phone: input.customer_phone, customer_email: input.customer_email } }];"
+      },
+      "id": "build-enquiry-response",
+      "name": "Code: Build Enquiry Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customer_phone }}",
+        "body": "={{ $json.smsBody }}"
+      },
+      "id": "sms-generic",
+      "name": "Twilio: Send SMS (Generic)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        800,
+        800
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-creds",
+          "name": "Twilio"
+        }
+      },
+      "notes": "Shared SMS sender for cancellation, reschedule, and enquiry paths"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.customer_email }}",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $json.emailHtml }}",
+        "options": {
+          "replyTo": "mabikamullan@gmail.com",
+          "senderName": "Sweet Hand Braids"
+        }
+      },
+      "id": "email-generic",
+      "name": "Gmail: Send (Generic)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        920
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Gmailaccount3",
+          "name": "Gmailaccount3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log all notification outcomes\nreturn [{ json: { \n  status: 'notifications_sent',\n  notification_type: $('Start').first().json.notification_type,\n  customer_phone: $('Start').first().json.customer_phone,\n  timestamp: new Date().toISOString()\n} }];"
+      },
+      "id": "log-completion",
+      "name": "Code: Log Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Switch: Notification Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Notification Type": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build 24hr Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build 1hr Call Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build Cancellation Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build Reschedule Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build Enquiry Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Booking Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send Booking SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Send Booking Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: Send Booking SMS": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send Booking Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build 24hr Reminder": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send 24hr SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Send 24hr Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: Send 24hr SMS": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send 24hr Reminder": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build 1hr Call Payload": {
+      "main": [
+        [
+          {
+            "node": "HTTP: VAPI Outbound Reminder Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: VAPI Outbound Reminder Call": {
+      "main": [
+        [
+          {
+            "node": "Code: Build 30min Backup SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build 30min Backup SMS": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Cancellation Notice": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send SMS (Generic)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Send (Generic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Reschedule Notice": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send SMS (Generic)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Send (Generic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Enquiry Response": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send SMS (Generic)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Send (Generic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: Send SMS (Generic)": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send (Generic)": {
+      "main": [
+        [
+          {
+            "node": "Code: Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "sub-workflow"
+    },
+    {
+      "name": "notifications"
+    },
+    {
+      "name": "production"
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+{
+  "name": "cron-1h-outbound-call-reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-15min",
+      "name": "Cron: Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ],
+      "notes": "Runs every 15 minutes. Checks for appointments 55-65 minutes from now to catch the 1-hour window reliably."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.customer_id, a.service_type, a.start_time, a.end_time, a.duration_minutes, a.notes, a.price_quoted, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email FROM appointments a JOIN customers c ON a.customer_id = c.id WHERE a.start_time >= NOW() + INTERVAL '55 minutes' AND a.start_time <= NOW() + INTERVAL '65 minutes' AND a.status = 'confirmed' AND a.id NOT IN ( SELECT (metadata->>'appointment_id')::uuid FROM analytics_events WHERE event_type = 'reminder_call_1h_sent' AND created_at > NOW() - INTERVAL '2 hours' )",
+        "options": {}
+      },
+      "id": "query-1h-appts",
+      "name": "Supabase: Get 1hr-Away Appointments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      },
+      "notes": "Finds appointments ~1 hour away that haven't already received a call reminder. The NOT IN subquery prevents duplicate calls."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-1h-appts",
+      "name": "IF: Has Appointments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "split-1h",
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        260
+      ],
+      "notes": "Process calls one at a time \u2014 VAPI outbound has rate limits"
+    },
+    {
+      "parameters": {
+        "jsCode": "const appt = $input.first().json;\nreturn [{\n  json: {\n    customer_phone: appt.customer_phone,\n    customer_email: appt.customer_email,\n    customer_name: appt.customer_name,\n    notification_type: 'reminder_call_1h',\n    appointment_details: {\n      id: appt.id,\n      service_type: appt.service_type,\n      start_time: appt.start_time,\n      end_time: appt.end_time,\n      duration_minutes: appt.duration_minutes,\n      notes: appt.notes,\n      price_quoted: appt.price_quoted\n    }\n  }\n}];"
+      },
+      "id": "build-call-payload",
+      "name": "Code: Build Call Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.SUB_NOTIFICATION_ENGINE_ID }}"
+      },
+      "id": "exec-notification-call",
+      "name": "Execute: sub-notification-engine (1hr Call)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO analytics_events (event_type, customer_id, channel, metadata) VALUES ('reminder_call_1h_sent', '{{ $('Code: Build Call Payload').first().json.appointment_details.id }}', 'automated', '{{ JSON.stringify({ appointment_id: $('Code: Build Call Payload').first().json.appointment_details.id, call_time: new Date().toISOString() }) }}')",
+        "options": {}
+      },
+      "id": "log-call-sent",
+      "name": "Supabase: Log Call Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        260
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-db",
+          "name": "Supabase DB"
+        }
+      },
+      "notes": "Mark this appointment as called \u2014 prevents duplicate calls on next cron tick"
+    },
+    {
+      "parameters": {
+        "options": {},
+        "time": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-between-calls",
+      "name": "Wait: 5s Between Calls",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1640,
+        260
+      ],
+      "notes": "Rate limit buffer between outbound VAPI calls"
+    }
+  ],
+  "connections": {
+    "Cron: Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Get 1hr-Away Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Get 1hr-Away Appointments": {
+      "main": [
+        [
+          {
+            "node": "IF: Has Appointments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Appointments?": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Split Into Batches": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Call Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code: Build Call Payload": {
+      "main": [
+        [
+          {
+            "node": "Execute: sub-notification-engine (1hr Call)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sub-notification-engine (1hr Call)": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Log Call Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase: Log Call Sent": {
+      "main": [
+        [
+          {
+            "node": "Wait: 5s Between Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: 5s Between Calls": {
+      "main": [
+        [
+          {
+            "node": "Split Into Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "sub-error-handler"
+  },
+  "tags": [
+    {
+      "name": "sweethandbraids"
+    },
+    {
+      "name": "cron"
+    },
+    {
+      "name": "reminders"
+    },
+    {
+      "name": "vapi-outbound"
+    }
+  ]
+}

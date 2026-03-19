@@ -1,0 +1,102 @@
+{
+  "name": "main-web-chat-e2e",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web-chat-intake",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-intake",
+      "name": "Webhook: Web Chat Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "notes": "Receives chat messages from the SweetHandBraids widget.\nInput: { session_id, customer_name, customer_phone, customer_email, message, message_type, style_id }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the OpenAI request payload with conversation context\nconst body = $input.first().json.body;\nconst sessionId = body.session_id || 'unknown';\nconst customerName = body.customer_name || 'Customer';\nconst message = body.message || '';\nconst messageType = body.message_type || 'text';\nconst styleId = body.style_id || null;\n\n// Build user content with context\nlet userContent = message;\nif (messageType === 'style_selection' && styleId) {\n  userContent = `I'm interested in ${styleId.replace(/_/g, ' ')}. ${message}`;\n} else if (messageType === 'video_frame') {\n  userContent = `[Customer shared a photo/video frame for hair analysis] ${message}`;\n}\n\nconst systemPrompt = `You are SweetHand, the AI hair braiding stylist at Sweet Hand Braids salon.\n\nPERSONALITY:\n- Warm, confident, knowledgeable — like a best friend who is also an expert braider\n- Use natural, friendly language with a warm, uplifting tone\n- Be enthusiastic about hair — you LOVE what you do\n- Give honest advice with kindness\n- Use occasional emojis naturally but don't overdo it\n\nSERVICES & PRICING:\n- Knotless Box Braids: 4-8 hrs, $150-350\n- Goddess Locs: 5-8 hrs, $180-350\n- Passion Twists: 3-6 hrs, $140-280\n- Butterfly Locs: 5-8 hrs, $180-320\n- Feed-In Cornrows: 2-5 hrs, $80-200\n- Fulani Braids: 3-6 hrs, $120-250\n- Tribal Braids: 4-7 hrs, $150-300\n- Crochet Braids: 2-4 hrs, $80-180\n\nRULES:\n1. Keep responses to 2-4 sentences. Be concise but warm.\n2. If they ask about a specific style, mention estimated time and price range.\n3. If they want to book, ask for: preferred style, date, and time.\n4. If they describe their hair or share a photo, give personalized recommendations.\n5. Always end with a clear next step or question.\n6. For pricing questions, give ranges and explain what affects the price.\n7. Be supportive of all hair textures and types.\n\nCustomer: ${customerName}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userContent,\n    sessionId,\n    customerName\n  }\n}];"
+      },
+      "id": "build-prompt",
+      "name": "Code: Build OpenAI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o', messages: [ { role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userContent } ], temperature: 0.7, max_tokens: 500 }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "call-openai",
+      "name": "HTTP: Call OpenAI GPT-4o",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300],
+      "notes": "Calls OpenAI Chat Completions API directly. Uses $vars.OPENAI_API_KEY."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse OpenAI response and format for the chat widget\nconst openaiResponse = $input.first().json;\nconst promptData = $('Code: Build OpenAI Prompt').first().json;\n\nconst responseText = openaiResponse.choices?.[0]?.message?.content || \"I'm here to help! What style are you thinking about? ✨\";\n\nreturn [{\n  json: {\n    response: responseText,\n    images: [],\n    booking_prompt: null,\n    session_id: promptData.sessionId\n  }\n}];"
+      },
+      "id": "format-response",
+      "name": "Code: Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [980, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Web Chat Intake": {
+      "main": [[{ "node": "Code: Build OpenAI Prompt", "type": "main", "index": 0 }]]
+    },
+    "Code: Build OpenAI Prompt": {
+      "main": [[{ "node": "HTTP: Call OpenAI GPT-4o", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Call OpenAI GPT-4o": {
+      "main": [[{ "node": "Code: Format Response", "type": "main", "index": 0 }]]
+    },
+    "Code: Format Response": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [
+    { "name": "sweethandbraids" },
+    { "name": "e2e" },
+    { "name": "production" }
+  ]
+}
