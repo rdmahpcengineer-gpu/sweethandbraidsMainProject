@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import './Booking.css';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const SERVICES = [
     { value: 'knotless_box_braids', label: 'Knotless Box Braids', price: '$150-350' },
